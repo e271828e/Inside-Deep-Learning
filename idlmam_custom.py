@@ -52,17 +52,7 @@ def visualize2DSoftmax(X, y, model, title=None):
         ax.set_title(title)
 
 
-def run_epoch(
-    model,
-    optimizer,
-    data_loader,
-    loss_func,
-    device,
-    results,
-    score_funcs,
-    prefix="",
-    desc=None,
-    disable_tqdm=False,
+def run_epoch( model, optimizer, data_loader, loss_func, device, results, score_funcs, prefix="", desc=None, disable_tqdm=False,
 ):
     """
     model -- the PyTorch model / "Module" to run for one epoch
