@@ -1,45 +1,46 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import time
+import functools
 
-from torch.utils.data import Dataset, DataLoader
+import torch
+import torch.utils.data
 
 from tqdm import tqdm
 
 import numpy as np
-import seaborn as sns
-import matplotlib.pyplot as plt
 
 import pandas as pd
 
-import time
 
 
-def run_epoch( model, f_loss, optimizer, data_loader, score_funcs=None, computing_device=torch.device("cpu"), desc=None, show_progress=True):
-    """
-    model -- the PyTorch model / "Module" to run for one epoch
-    optimizer -- the object that will update the weights of the network
-    data_loader -- DataLoader object that returns tuples of (input, label) pairs.
-    loss_func -- the loss function that takes in two arguments, the model outputs and the labels, and returns a score
-    device -- the compute lodation to perform training
-    score_funcs -- a dictionary of scoring functions to use to evalue the performance of the model
-    prefix -- a string to pre-fix to any scores placed into the _results_ dictionary.
-    desc -- a description to use for the progress bar.
-    """
+def from_logits(f_metric):
+    @functools.wraps(f_metric)
+    def wrapper(input_logits, target_class, *args, **kwargs):
+        input_class = torch.argmax(input_logits, axis=1)
+        score = f_metric(input_class, target_class, *args, **kwargs)
+        return score
+    return wrapper
+
+
+
+def run_epoch(model, loss_function, optimizer, data_loader, metrics=None, desc=None, show_progress=True):
+
+    #the computing device is found from the first model parameter. we assume all
+    #parameters in the model are stored in the same device, otherwise we will
+    #get an error later on
+    computing_device = next(model.parameters()).device
+
     batch_losses = []
     y_batches = []
     y_hat_batches = []
-    start = time.time()
+    t_start = time.time()
     for x_batch, y_batch in tqdm( data_loader, desc=desc, leave=False, disable=(not show_progress)):
         
-        #here, inputs and labels will be in the storage device, which can be the
-        #same or different from the compute device
         x_batch = x_batch.to(computing_device)
         y_batch = y_batch.to(computing_device)
 
         y_hat_batch = model(x_batch)
 
-        batch_loss = f_loss(y_hat_batch, y_batch)
+        batch_loss = loss_function(y_hat_batch, y_batch)
 
         if model.training:
             batch_loss.backward()
@@ -48,48 +49,23 @@ def run_epoch( model, f_loss, optimizer, data_loader, score_funcs=None, computin
 
         batch_losses.append(batch_loss.item())
 
-        #at this point, both y_batch and y_hat_batch are stored at
-        #computing_device, because y_batch was explicitly moved to it, and y_hat
-        #has been created at the model's device, which must also be
-        #computing_device (otherwise we would have gotten an error). since we
-        #are going to use scoring functions defined outside PyTorch, we need
-        #these tensors converted back to regular NumPy arrays, and this in turn
-        #requires detaching them and moving them to the CPU. 
-        
-        #these are both lists of batch_len x out_features numpy arrays, one per
-        #batch processed so far
-        y_batches.append(y_batch.detach().cpu().numpy())
-        y_hat_batches.append(y_hat_batch.detach().cpu().numpy()) 
+        y_batches.append(y_batch.detach())
+        y_hat_batches.append(y_hat_batch.detach()) 
 
-    # end training epoch
-    end = time.time()
+    t_end = time.time()
 
-    y_epoch = np.concatenate(y_batches)
-    y_hat_epoch = np.concatenate(y_hat_batches)
+    y_epoch = torch.cat(y_batches) #along first dimension
+    y_hat_epoch = torch.cat(y_hat_batches) #idem
 
-    return y_epoch, y_hat_epoch
+    results = {}
+    results["time"] = t_end - t_start
+    results["loss"] = np.mean(batch_losses)
 
-    #score functions must be consistent with the type of problem. 
+    if metrics is not None:
+        for name, func in metrics.items():
+            try:
+                results[name] = func(y_hat_epoch, y_epoch)
+            except:
+                results[name] = float("NaN")
 
-    y_pred = np.asarray(y_pred)
-    if (
-        len(y_pred.shape) == 2 and y_pred.shape[1] > 1
-    ):  # We have a classification problem, convert to labels
-        y_pred = np.argmax(y_pred, axis=1)
-    # Else, we assume we are working on a regression problem
-
-    results[prefix + " loss"].append(np.mean(epoch_losses))
-    for name, score_func in score_funcs.items():
-        try:
-            results[prefix + " " + name].append(score_func(y_true, y_pred))
-        except:
-            results[prefix + " " + name].append(float("NaN"))
-    return end - start  # time spent on epoch
-
-# def train_network( model, loss_func, train_loader, val_loader=None, test_loader=None, score_funcs=None, epochs=50, device="cpu", checkpoint_file=None, lr_schedule=None, optimizer=None, disable_tqdm=False,):
-# def train_network_new(model, f_loss, optimizer, training_loader, testing_loader=None, validation_loader=None, score_functions = None, epochs = 50, lr_schedule=None, checkpoint_load_path=None, checkpoint_save_path=None):
-
-
-
-
-#determine device by looking at model parameters
+    return results
