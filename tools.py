@@ -10,6 +10,8 @@ from tqdm import tqdm
 import numpy as np
 
 import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 
 
@@ -85,7 +87,7 @@ def eval_network(model, loaders, metrics):
     return scores
 
 
-def train_network( model, loss_function, optimizer, train_loader, eval_loaders=None, eval_metrics=None,
+def train_network( model, optimizer, loss_function, train_loader, eval_loaders=None, eval_metrics=None,
                   epochs=4, save_path=None, save_id=None, save_interval=2, load_file=None, show_progress=True):
 
     model_training = model.training
@@ -109,7 +111,7 @@ def train_network( model, loss_function, optimizer, train_loader, eval_loaders=N
     if eval_metrics is None:
         eval_metrics = {"Loss": loss_function}
 
-    step_results = {"Last Epoch": [last_epoch], "Last Time": [last_time]}
+    step_results = {"Last Epoch": [last_epoch], "Training Time": [last_time]}
 
     #get current model evaluation before starting training
     scores = eval_network(model, eval_loaders, eval_metrics)
@@ -121,7 +123,7 @@ def train_network( model, loss_function, optimizer, train_loader, eval_loaders=N
         model.train()
         train_results = run_epoch( model, loss_function, optimizer, train_loader, desc=None, show_progress=show_progress)
         step_results["Last Epoch"].append(epoch)
-        step_results["Last Time"].append(train_results["time"])
+        step_results["Training Time"].append(train_results["time"])
 
         scores = eval_network(model, eval_loaders, eval_metrics)
         for name, score in scores.items():
@@ -138,3 +140,32 @@ def train_network( model, loss_function, optimizer, train_loader, eval_loaders=N
     model.train(model_training)
 
     return pd.DataFrame.from_dict(step_results)
+
+
+def visualize_2D_classifier(X, y, model, resolution = 100, title=None):
+    x_min = np.min(X[:, 0]) - 0.5
+    x_max = np.max(X[:, 0]) + 0.5
+    y_min = np.min(X[:, 1]) - 0.5
+    y_max = np.max(X[:, 1]) + 0.5
+    # create a grid of (x, y) points on which to evaluate the model
+    xv, yv = np.meshgrid(np.linspace(x_min, x_max, num=resolution),
+                         np.linspace(y_min, y_max, num=resolution), indexing="ij")
+    # our model expects a tensor of shape [n_batch, 2] (two input features) and
+    # outputs a tensor of logits of shape [n_batch, n_classes].we reshape the
+    # grid's x and y coordinates into row matrices and stack these horizontally
+    # into an array of shape [n_batch, n_features]
+    xy_v = np.hstack((xv.reshape(-1, 1), yv.reshape(-1, 1)))
+    with torch.no_grad():
+        model_device = list(model.parameters())[0].device
+        logits = model(torch.tensor(xy_v, dtype=torch.float32).to(model_device))
+        # we apply softmax along the second dimension to convert the two values
+        # of each of the n_batch outputs into a probability distribution
+        y_hat = torch.nn.functional.softmax(logits, dim=1).cpu().numpy()
+
+    # plot a contour of the first of the two probability values
+    cs = plt.contourf(xv, yv, y_hat[:, 0].reshape(resolution, resolution),
+                      levels=np.linspace(0, 1, num=resolution), cmap=plt.cm.RdYlBu,)
+    ax = plt.gca()
+    sns.scatterplot(x=X[:, 0], y=X[:, 1], hue=y, style=y, ax=ax)
+    if title is not None:
+        ax.set_title(title)

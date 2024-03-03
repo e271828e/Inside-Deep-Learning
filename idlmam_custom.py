@@ -17,40 +17,6 @@ import pandas as pd
 import time
 
 
-def visualize2DSoftmax(X, y, model, title=None):
-    x_min = np.min(X[:, 0]) - 0.5
-    x_max = np.max(X[:, 0]) + 0.5
-    y_min = np.min(X[:, 1]) - 0.5
-    y_max = np.max(X[:, 1]) + 0.5
-    # create a grid of (x, y) points in which to evaluate the model
-    xv, yv = np.meshgrid(
-        np.linspace(x_min, x_max, num=20),
-        np.linspace(y_min, y_max, num=20),
-        indexing="ij",
-    )
-    # stack all x and y coordinates in 1D vectors and stack them horizontally in a 400x2 array
-    xy_v = np.hstack((xv.reshape(-1, 1), yv.reshape(-1, 1)))
-    # the Linear input layer in our model expects a tensor of size n_batch x in_features (2) and outputs
-    # a tensor of logits of size n_batch x out_features (2)
-    with torch.no_grad():
-        model_device = list(model.parameters())[0].device
-        logits = model(torch.tensor(xy_v, dtype=torch.float32).to(model_device))
-        # we apply softmax along the second dimension to convert the two values of each of the n_batch
-        # outputs to a probability distribution
-        y_hat = F.softmax(logits, dim=1).cpu().numpy()
-    # plot a contour of the first of the two probability values
-    cs = plt.contourf(
-        xv,
-        yv,
-        y_hat[:, 0].reshape(20, 20),
-        levels=np.linspace(0, 1, num=100),
-        cmap=plt.cm.RdYlBu,
-    )
-    ax = plt.gca()
-    sns.scatterplot(x=X[:, 0], y=X[:, 1], hue=y, style=y, ax=ax)
-    if title is not None:
-        ax.set_title(title)
-
 
 def run_epoch( model, optimizer, data_loader, loss_func, device, results, score_funcs, prefix="", desc=None, disable_tqdm=False,
 ):
